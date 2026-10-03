@@ -282,6 +282,10 @@ ack = (df[df["Priority"].isin(["P1", "P2"]) & df["first_ack_seconds"].notna()]
        .groupby("Priority", observed=True)["first_ack_seconds"]
        .agg(median="median", p90=lambda s: s.quantile(0.9), alerts="size").reset_index())
 ack["Priority"] = ack["Priority"].astype(str)
+# Alerts that were never acknowledged have no time to acknowledge, so the
+# median uses fewer alerts than the priority totals (as in the Rmd).
+ack["not_acked"] = ack["Priority"].map(pri.set_index("Priority")["alerts"]) - ack["alerts"]
+not_acked_total = int(ack["not_acked"].sum())
 p = pri.set_index("Priority")
 a = ack.set_index("Priority")
 pri_colors = [RED if x == "P1" else BLUE for x in pri["Priority"]]
@@ -313,15 +317,19 @@ with c1, st.container(border=True):
     ))
     clickable_chart(base_layout(fig), "chart_priority_rate", 2)
 with c2, st.container(border=True):
-    card_header("Median time to acknowledge", "Seconds · hover for the 90th percentile")
+    card_header("Median time to acknowledge",
+                "Seconds · acknowledged alerts only"
+                + (f" ({not_acked_total:,} never acknowledged)" if not_acked_total else "")
+                + " · hover for the 90th percentile")
     fig = go.Figure(go.Bar(
         x=ack["Priority"], y=ack["median"],
         marker_color=[RED if x == "P1" else BLUE for x in ack["Priority"]], width=0.6,
         customdata=list(zip(["Priority"] * len(ack), ack["Priority"],
                             [f"priority {x}" for x in ack["Priority"]],
-                            ack["p90"] / 60, ack["alerts"])),
+                            ack["p90"] / 60, ack["alerts"], ack["not_acked"])),
         hovertemplate=("<b>%{x}</b><br>Median: %{y:,.0f}s<br>90th pct: %{customdata[3]:.1f} min"
-                       "<br>%{customdata[4]:,} alerts<extra></extra>"),
+                       "<br>Based on %{customdata[4]:,} acknowledged alerts"
+                       "<br>(%{customdata[5]:,} never acknowledged)<extra></extra>"),
     ))
     clickable_chart(base_layout(fig, y_format=",.0f", y_title=None).update_yaxes(ticksuffix="s"),
                     "chart_priority_ack", 2)
