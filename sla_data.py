@@ -82,16 +82,37 @@ def _clean_tags(raw):
         return raw.strip("[]").replace('"', "")
 
 
-@st.cache_data(show_spinner="Loading alert data…")
+def _read_slim(source, chunksize=20_000):
+    """Read only the needed columns, in chunks.
+
+    Reading the 141 MB CSV in one go peaks near 1 GB of memory, which is enough
+    for Streamlit Community Cloud to kill the app. Chunked reading with
+    compact tag columns peaks around 250 MB and gives the same DataFrame.
+    """
+    columns = [c for c in pd.read_csv(source, nrows=0).columns if _keep(c)]
+    if hasattr(source, "seek"):  # uploaded file: rewind after reading the header
+        source.seek(0)
+    parts = []
+    for chunk in pd.read_csv(source, usecols=columns, chunksize=chunksize):
+        tag_cols = [c for c in chunk.columns if c.startswith("tag_")]
+        chunk[tag_cols] = chunk[tag_cols].fillna(0).astype("int8")
+        parts.append(chunk)
+    return pd.concat(parts, ignore_index=True)
+
+
+# cache_resource keeps ONE shared copy for all visitors (cache_data would hand
+# every rerun its own ~60 MB copy). Pages must treat the result as read-only.
+@st.cache_resource(show_spinner="Loading alert data…", max_entries=1)
 def load_alerts(source, modified=None):
     """Read the CSV or zipped CSV (path or uploaded file) and add the derived columns.
 
     `modified` is the file's mtime; it is only part of the cache key, so the
     cache refreshes when the CSV on disk is replaced.
     """
-    df = pd.read_csv(source, usecols=_keep, low_memory=False)
+    df = _read_slim(source)
 
     df["Created At Time"] = pd.to_datetime(df["Created At Time"], errors="coerce")
+    df = df[df["Created At Time"].notna()].reset_index(drop=True)
     df["month"] = df["Created At Time"].dt.strftime("%Y-%m")
 
     if "created_hour" not in df:
