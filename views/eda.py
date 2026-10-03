@@ -1,8 +1,8 @@
 """EDA / Descriptive pillar: what the alert data actually shows.
 
-Python/Streamlit port of DescriptivePillar.Rmd. Clicking a month on the first
-chart lists every alert from that month in a table that can be downloaded as
-CSV. The other charts are hover-only.
+Python/Streamlit port of DescriptivePillar.Rmd. Every chart is clickable.
+Clicking a month on the first chart lists every alert from that month, with a
+CSV download; clicking a bar on any other chart shows example alerts behind it.
 """
 
 import re
@@ -28,6 +28,7 @@ GRID = "rgba(255,255,255,0.07)"
 MUTED = "#8B949E"
 MONO = "JetBrains Mono, SFMono-Regular, Menlo, Consolas, monospace"
 
+EXAMPLE_ROWS = 100
 DEFAULT_TAGS = ["SNMP", "Network", "Critical", "Application",
                 "Server", "Firewall", "Syslog", "Notified"]
 EXPORT_COLUMNS = [
@@ -98,6 +99,7 @@ def base_layout(fig, height=300, y_format=".0%", x_title=None, y_title=None):
         showlegend=False,
         hoverlabel=dict(bgcolor="#1F2328", bordercolor="#30363D",
                         font=dict(family=MONO, size=12, color="#F0F3F6")),
+        clickmode="event+select",
         dragmode=False,
         bargap=0.25,
         barcornerradius=4,
@@ -158,10 +160,6 @@ def clickable_chart(fig, chart_key, section):
     )
 
 
-def static_chart(fig):
-    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
-
-
 @st.cache_data(show_spinner="Preparing CSV…", max_entries=32)
 def _csv_bytes(_df, data_id, column, value):
     sub = _df.loc[_df[column] == value]
@@ -174,8 +172,12 @@ def _style_sla(v):
             "ON TIME": "color: #3FB950; font-weight: 600"}.get(v, "")
 
 
-def drilldown(df, data_id, section, hint, default=None):
-    """Every raw alert for whatever was last clicked in this section, plus a CSV download."""
+def drilldown(df, data_id, section, hint, default=None, full=False):
+    """Raw alerts for whatever was last clicked in this section.
+
+    full=True lists every matching alert and adds a CSV download (monthly chart);
+    otherwise it shows the EXAMPLE_ROWS most recent matches as examples.
+    """
     sel = st.session_state.get(f"drill_{section}", default)
     if not sel:
         st.caption(f"*{hint}*")
@@ -188,7 +190,9 @@ def drilldown(df, data_id, section, hint, default=None):
         f" flex-wrap:wrap; gap:.5rem; margin:.5rem 0 1.6rem'>"
         f"<b>Alerts from {sel['label']}</b>"
         f"<span style='font-family:{MONO}; font-size:.8rem; color:{MUTED}'>"
-        f"{n:,} of {len(df):,} alerts · scroll to see all</span></div>",
+        + (f"{n:,} of {len(df):,} alerts · scroll to see all" if full else
+           f"{n:,} of {len(df):,} alerts match · showing {min(n, EXAMPLE_ROWS):,} most recent")
+        + "</span></div>",
         unsafe_allow_html=True,
     )
 
@@ -200,6 +204,8 @@ def drilldown(df, data_id, section, hint, default=None):
         "Ack (min)": sub["first_ack_seconds"] / 60,
         "SLA": sub["sla_status"].astype(str),
     })
+    if not full:
+        preview = preview.head(EXAMPLE_ROWS)
 
     st.dataframe(
         preview.style.map(_style_sla, subset=["SLA"]),
@@ -214,6 +220,8 @@ def drilldown(df, data_id, section, hint, default=None):
             "Tags": st.column_config.TextColumn(width="large"),
         },
     )
+    if not full:
+        return
     st.download_button(
         f"Download all {n:,} as CSV",
         data=_csv_bytes(df, data_id, sel["column"], sel["value"]),
@@ -328,7 +336,7 @@ with st.container(border=True):
     clickable_chart(fig, "chart_month", 1)
     drilldown(df, data_id, 1, "Click a point to see that month's alerts.",
               default=dict(column="month", value=peak["month"],
-                           label=f"{peak['month']} (peak month)", source=None))
+                           label=f"{peak['month']} (peak month)", source=None), full=True)
 takeaway(
     "The base rate itself drifts over time. A model trained on one period will meet a different "
     "breach rate in the next, so evaluate on time-ordered splits and keep watching calibration "
@@ -371,7 +379,7 @@ with c1, st.container(border=True):
         hovertemplate=("<b>%{x}</b><br>Breach rate: %{y:.1%}<br>"
                        "%{customdata[3]:,} breaches of %{customdata[4]:,} alerts<extra></extra>"),
     ))
-    static_chart(base_layout(fig))
+    clickable_chart(base_layout(fig), "chart_priority_rate", 2)
 with c2, st.container(border=True):
     card_header("Median time to acknowledge", "Seconds · hover for the 90th percentile")
     fig = go.Figure(go.Bar(
@@ -383,7 +391,9 @@ with c2, st.container(border=True):
         hovertemplate=("<b>%{x}</b><br>Median: %{y:,.0f}s<br>90th pct: %{customdata[3]:.1f} min"
                        "<br>%{customdata[4]:,} alerts<extra></extra>"),
     ))
-    static_chart(base_layout(fig, y_format=",.0f", y_title=None).update_yaxes(ticksuffix="s"))
+    clickable_chart(base_layout(fig, y_format=",.0f", y_title=None).update_yaxes(ticksuffix="s"),
+                    "chart_priority_ack", 2)
+drilldown(df, data_id, 2, "Click a bar to see example alerts.")
 takeaway(
     "Priority separates risk but doesn't decide it. "
     + (f"P2 alerts still account for **{pct(p2_share, 0)} of all breaches** simply because there are "
@@ -425,7 +435,7 @@ with c1, st.container(border=True):
                        "%{customdata[3]:,} breaches of %{customdata[4]:,} alerts<extra></extra>"),
     ))
     base_layout(fig).update_xaxes(tickmode="linear", dtick=3)
-    static_chart(fig)
+    clickable_chart(fig, "chart_hour", 3)
 with c2, st.container(border=True):
     card_header("By day of week", "Monday–Sunday · red = highest day")
     fig = go.Figure(go.Bar(
@@ -439,7 +449,8 @@ with c2, st.container(border=True):
                        "%{customdata[3]:,} breaches of %{customdata[4]:,} alerts<extra></extra>"),
     ))
     base_layout(fig).update_xaxes(categoryorder="array", categoryarray=DAY_LABELS)
-    static_chart(fig)
+    clickable_chart(fig, "chart_day", 3)
+drilldown(df, data_id, 3, "Click a bar to see example alerts.")
 takeaway(
     f"Time of arrival carries signal. The {hour_label(ph['created_hour'])} spike points to a "
     "likely coverage gap (shift handover or thin staffing), which would be a staffing fix as "
@@ -477,9 +488,10 @@ with st.container(border=True):
                      range=[0, (big["breach_rate"].max() if len(big) else 0.1) * 1.3])
     fig.update_yaxes(showgrid=False, tickformat=None, autorange="reversed")
     fig.add_vline(x=baseline, line=dict(color=MUTED, dash="dot", width=1))
-    static_chart(fig)
+    clickable_chart(fig, "chart_client", 4)
     st.slider("Minimum alerts per client", 0, 20000, 5000, step=500, key="min_client_alerts",
               help="Small clients have noisy breach rates; raise this to focus on volume clients.")
+    drilldown(df, data_id, 4, "Click a bar to see example alerts from that client.")
 takeaway(
     "Clients start from very different baselines. A single global threshold will flag "
     "high-baseline clients far more often than low-baseline ones, so client identity (or "
@@ -531,9 +543,10 @@ if all_tags:
         ))
         fig.add_hline(y=1, line=dict(color=MUTED, dash="dash", width=1))
         base_layout(fig, height=320, y_format=".1f").update_yaxes(ticksuffix="×")
-        static_chart(fig)
+        clickable_chart(fig, "chart_tags", 5)
         st.multiselect("Tags to compare", all_tags, key="chosen_tags",
                        default=[t for t in DEFAULT_TAGS if t in all_tags] or all_tags[:8])
+        drilldown(df, data_id, 5, "Click a bar to see example alerts carrying that tag.")
     takeaway(
         "Tags are among the most informative descriptive features. Check when each one is "
         "applied, though: a tag like **Notified** may be added *after* an alert has already gone "
@@ -542,7 +555,7 @@ if all_tags:
     )
 
 # ---- 06 Workload ----------------------------------------------------------- #
-def workload_chart(column, labels, title, subtitle, key):
+def workload_chart(column, labels, title, subtitle, key, scope):
     w = rate_table(df[df[column].isin(labels)], column)
     w[column] = pd.Categorical(w[column], labels, ordered=True)
     w = w.sort_values(column)
@@ -553,14 +566,14 @@ def workload_chart(column, labels, title, subtitle, key):
             x=w[column], y=w["breach_rate"], width=0.75,
             marker_color=[RED if b == labels[-1] else BLUE for b in w[column]],
             customdata=list(zip([column] * len(w), w[column],
-                                [f"{b} prior alerts ({title.lower()})" for b in w[column]],
+                                [f"{b} prior {scope} alerts in 15 min" for b in w[column]],
                                 w["breaches"], w["alerts"])),
             hovertemplate=("<b>%{x} prior alerts</b><br>Breach rate: %{y:.1%}<br>"
                            "%{customdata[3]:,} breaches of %{customdata[4]:,} alerts<extra></extra>"),
         ))
         base_layout(fig, x_title="Number of prior alerts")
         fig.update_xaxes(categoryorder="array", categoryarray=labels, title_font=dict(size=11))
-        static_chart(fig)
+        clickable_chart(fig, key, 6)
     return w.set_index(column)
 
 
@@ -582,10 +595,11 @@ if {"workload_bin", "team_workload_bin"} <= set(df.columns):
     c1, c2 = st.columns(2)
     with c1:
         workload_chart("workload_bin", WORKLOAD_LABELS, "vs. alerts in prior 15 min (all sources)",
-                       "Binned · red = busiest bucket", "chart_workload")
+                       "Binned · red = busiest bucket", "chart_workload", "(all sources)")
     with c2:
         workload_chart("team_workload_bin", TEAM_WORKLOAD_LABELS, "vs. same-team alerts in prior 15 min",
-                       "Binned · red = busiest bucket", "chart_team_workload")
+                       "Binned · red = busiest bucket", "chart_team_workload", "same-team")
+    drilldown(df, data_id, 6, "Click a bar to see example alerts.")
     takeaway(
         "Load matters, but only at the extremes. Bursts overwhelm analysts"
         + (", while lone alerts in quiet periods (often off-hours) also get missed" if u_shape else "")
@@ -630,7 +644,8 @@ with st.container(border=True):
     ))
     base_layout(fig, height=320, y_format="~s", x_title="Time to acknowledge (minutes)")
     fig.update_xaxes(title_font=dict(size=11))
-    static_chart(fig)
+    clickable_chart(fig, "chart_ack", 7)
+    drilldown(df, data_id, 7, "Click a bar to see example alerts.")
 takeaway(
     "The label is clean, so model errors come from the features, not label noise. But it sits on "
     "a thin tail of a heavily skewed distribution, which makes this an imbalanced-class problem. "

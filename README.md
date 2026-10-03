@@ -54,10 +54,15 @@ the data, the chart(s), and a takeaway.
 | 07 | Time to acknowledge | Distribution, capped at 60 min |
 
 **Interactivity:** hover any point or bar for alerts, breaches and rates.
-On the first chart (breach rate by month), **click a month** to list every alert
-from that month in the table below it; **Download all N as CSV** exports them.
-It opens on the peak month by default. Section 04 has a minimum-volume slider
-and section 05 a tag picker.
+Every chart is clickable:
+
+- **Breach rate by month (01):** click a month to list *every* alert from that
+  month; **Download all N as CSV** exports them. Opens on the peak month.
+- **All other charts:** click a bar to preview the 100 most recent example
+  alerts behind it (no download).
+
+Double-click empty chart space to clear a selection. Section 04 also has a
+minimum-volume slider and section 05 a tag picker.
 
 ## Layout
 
