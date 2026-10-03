@@ -38,11 +38,11 @@ CSS = f"""
 .chart-sub {{font-size: .8rem; color: {MUTED}; margin-bottom: .25rem;}}
 .takeaway {{border-left: 3px solid {BLUE}; padding: .5rem .9rem; margin: .5rem 0 1rem;
            background: rgba(54,137,230,.07); border-radius: 0 6px 6px 0; font-size: .9rem;}}
-.tbd {{border: 1px dashed rgba(255,255,255,.18); border-radius: 10px; padding: 1.2rem 1.4rem;
-       background: #16181C; margin: 1rem 0;}}
-.tbd-badge {{display: inline-block; font-family: {MONO}; font-size: .7rem; letter-spacing: .08em;
+.tbd {{border: 1px dashed rgba(255,255,255,.18); border-radius: 10px; padding: 3rem 1.4rem;
+       background: #16181C; margin: 2rem 0; text-align: center;}}
+.tbd-badge {{display: inline-block; font-family: {MONO}; font-size: .85rem; letter-spacing: .08em;
              color: #E3B341; border: 1px solid rgba(227,179,65,.4); border-radius: 999px;
-             padding: .1rem .6rem; margin-bottom: .6rem;}}
+             padding: .3rem .9rem;}}
 </style>
 """
 
@@ -106,16 +106,7 @@ def takeaway(text):
 
 
 
-def coming_soon(pillar, title, question, planned, file_name):
+def coming_soon():
     """Placeholder body for a pillar tab that hasn't been built yet."""
-    page_header(f"{pillar} pillar · coming soon", title)
-    items = "".join(f"<li>{item}</li>" for item in planned)
-    st.markdown(
-        f"<div class='tbd'><div class='tbd-badge'>TBD · WAITING TO BE BUILT</div>"
-        f"<p><b>Question this tab will answer:</b> {question}</p>"
-        f"<p style='margin-bottom:.3rem'><b>Planned content</b></p><ul>{items}</ul>"
-        f"<p style='color:{MUTED}; font-size:.85rem; margin:0'>Built in "
-        f"<code>views/{file_name}</code>. See the EDA tab for the finished descriptive pillar.</p>"
-        "</div>",
-        unsafe_allow_html=True,
-    )
+    st.markdown("<div class='tbd'><div class='tbd-badge'>TBD · WAITING TO BE BUILT</div></div>",
+                unsafe_allow_html=True)
