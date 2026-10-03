@@ -102,6 +102,7 @@ def base_layout(fig, height=300, y_format=".0%", x_title=None, y_title=None):
         clickmode="event+select",
         dragmode=False,
         bargap=0.25,
+        barcornerradius=4,
     )
     fig.update_xaxes(showgrid=False, title=x_title, fixedrange=True)
     fig.update_yaxes(gridcolor=GRID, zeroline=False, tickformat=y_format,
@@ -288,13 +289,16 @@ st.markdown(
 
 # ---- 01 Monthly breach rate ------------------------------------------------ #
 last = monthly.iloc[-1]
-recent_dir = "below" if last["breach_rate"] < baseline else "above"
+recent = monthly["breach_rate"].tail(3)
+falling_since_peak = peak["month"] < monthly["month"].iloc[-3] and (recent < baseline).all()
 section_header(
     1, "The breach rate is a moving target",
-    f"Monthly breach rate ranges from **{pct(low['breach_rate'])} to {pct(peak['breach_rate'])}** "
-    f"(a {peak['breach_rate'] / max(low['breach_rate'], 1e-9):.0f}x swing), peaking in "
-    f"**{month_label(peak['month'])}**. The latest month, {month_label(last['month'])}, sits at "
-    f"{pct(last['breach_rate'])}, {recent_dir} the {pct(baseline, 2)} overall rate.",
+    f"Monthly breach rate ranges from **{pct(low['breach_rate'])} to {pct(peak['breach_rate'])}**, "
+    f"a {peak['breach_rate'] / max(low['breach_rate'], 1e-9):.0f}x swing, peaking in "
+    f"**{pd.Timestamp(peak['month'] + '-01'):%B %Y}**"
+    + (", then dropping sharply through the most recent months "
+       f"({month_label(last['month'])}: {pct(last['breach_rate'])})." if falling_since_peak else
+       f". The latest month, {month_label(last['month'])}, sits at {pct(last['breach_rate'])}."),
 )
 with st.container(border=True):
     card_header("Breach rate by month",
@@ -344,7 +348,7 @@ if {"P1", "P2"} <= set(p.index):
     section_header(
         2, "Priority is a real, partial signal",
         f"P1 alerts breach at **{pct(p.loc['P1', 'breach_rate'])}** vs P2's "
-        f"**{pct(p.loc['P2', 'breach_rate'])}**, and take **{ratio:.1f}x longer** to acknowledge "
+        f"**{pct(p.loc['P2', 'breach_rate'])}**, taking **{ratio:.1f}x longer** to acknowledge "
         "at the median.",
     )
 else:
@@ -399,8 +403,11 @@ title3 = ("Risk spikes right before the workday starts" if 5 <= ph["created_hour
 section_header(
     3, title3,
     f"Breach rate peaks at **{hour_label(ph['created_hour'])} ({pct(ph['breach_rate'])})**, "
-    f"{ph['breach_rate'] / baseline:.1f}x the overall average. By weekday it is highest on "
-    f"**{DAY_LABELS[int(pd_['created_day_of_week'])]} ({pct(pd_['breach_rate'])})**.",
+    + ("more than double the daily average" if ph["breach_rate"] >= 2 * baseline
+       else f"{ph['breach_rate'] / baseline:.1f}x the daily average")
+    + f", and is highest on **{pd.Timestamp('2024-01-01') + pd.Timedelta(days=int(pd_['created_day_of_week'])):%A} "
+    f"({pct(pd_['breach_rate'])})** across the week, against a low of "
+    f"{pct(daily['breach_rate'].min())} on {daily.loc[daily['breach_rate'].idxmin(), 'day']}.",
 )
 c1, c2 = st.columns(2)
 with c1, st.container(border=True):
@@ -496,13 +503,19 @@ if all_tags:
     tags = tags.sort_values("lift")
     if len(tags):
         hi, lo = tags.iloc[-1], tags.iloc[0]
-        lede5 = (f"Alerts tagged **{hi['tag']}** breach at **{hi['lift']:.1f}x** the "
-                 f"{pct(baseline)} baseline; **{lo['tag']}** alerts at only **{lo['lift']:.1f}x**. "
-                 "Tags describe what kind of alert this is, and some kinds are much harder to "
-                 "acknowledge in time.")
+        common = tags.loc[tags["alerts"].idxmax()]
+        cover = lambda r: pct(r["alerts"] / len(known), 0)
+        lede5 = (f"**tag_{common['tag']}** covers {cover(common)} of alerts and moves risk to "
+                 f"**{common['lift']:.2f}x** baseline"
+                 + (f"; **tag_{hi['tag']}** is rare ({cover(hi)} of alerts) but carries "
+                    f"**{hi['lift']:.1f}x** the risk." if hi["tag"] != common["tag"] else ".")
+                 + f" (Baseline = {pct(baseline)} overall breach rate.)")
+        title5 = ("One tag dominates — and it points the right way"
+                  if common["lift"] < 1 and common["alerts"] / len(known) >= 0.25
+                  else "Tags carry real risk signal")
     else:
-        lede5 = "Pick at least one tag below."
-    section_header(5, "Some tags flag risk, others signal safety", lede5)
+        lede5, title5 = "Pick at least one tag below.", "Tags carry real risk signal"
+    section_header(5, title5, lede5)
     with st.container(border=True):
         card_header(f"Breach-rate lift by tag, vs. {pct(baseline)} baseline",
                     "Lift = breach rate with the tag ÷ overall rate · below 1.0x = safer, above = riskier")
@@ -559,29 +572,27 @@ if {"workload_bin", "team_workload_bin"} <= set(df.columns):
     low_bin = w_all["breach_rate"].idxmin()
     middle = w_all["breach_rate"].iloc[1:-1].mean()
     u_shape = w_all["breach_rate"].iloc[0] > middle and w_all["breach_rate"].iloc[-1] > middle
+    others = w_all["breach_rate"].drop(top_bin)
     section_header(
-        6, "Workload matters most at the extremes" if u_shape else "Workload's effect on breaches",
-        f"Breach rate is highest when **{top_bin}** alerts arrived in the prior 15 minutes "
-        f"(**{pct(w_all.loc[top_bin, 'breach_rate'])}**) and lowest at **{low_bin}** "
-        f"({pct(w_all.loc[low_bin, 'breach_rate'])}). "
-        + ("The pattern is not a straight line: very quiet and very busy queues both run hotter "
-           "than moderate ones." if u_shape else
-           "Compare both views: overall volume and same-team volume can tell different stories."),
+        6, "Workload's effect is real but non-linear",
+        f"Breach rate rises sharply only once **{top_bin} alerts** land in the prior 15 minutes "
+        f"(**{pct(w_all.loc[top_bin, 'breach_rate'])}** vs {pct(others.min())}–{pct(others.max())} "
+        "for every other bucket). It is a congestion effect past a threshold, not a straight line"
+        + (", and very quiet queues also run hotter than moderate ones." if u_shape else "."),
     )
     c1, c2 = st.columns(2)
     with c1:
-        workload_chart("workload_bin", WORKLOAD_LABELS, "By recent alert volume",
-                       "All alerts in prior 15 min · red = busiest bucket", "chart_workload")
+        workload_chart("workload_bin", WORKLOAD_LABELS, "vs. alerts in prior 15 min (all sources)",
+                       "Binned · red = busiest bucket", "chart_workload")
     with c2:
-        workload_chart("team_workload_bin", TEAM_WORKLOAD_LABELS, "By team workload",
-                       "Same-team alerts in prior 15 min · red = busiest bucket", "chart_team_workload")
+        workload_chart("team_workload_bin", TEAM_WORKLOAD_LABELS, "vs. same-team alerts in prior 15 min",
+                       "Binned · red = busiest bucket", "chart_team_workload")
     drilldown(df, data_id, 6, "Click a bar to see example alerts.")
     takeaway(
-        "Load has a non-linear, U-shaped relationship with breaches. Bursts overwhelm analysts, "
-        "but lone alerts in quiet periods (often off-hours) also get missed. Tree-based models "
-        "capture this shape far better than a linear term would." if u_shape else
-        "Workload is not a simple more-alerts-more-breaches story. Keep it as a binned or "
-        "tree-friendly feature rather than assuming a linear effect."
+        "Load matters, but only at the extremes. Bursts overwhelm analysts"
+        + (", while lone alerts in quiet periods (often off-hours) also get missed" if u_shape else "")
+        + ". Threshold-shaped effects like this are what tree-based models capture and a single "
+        "linear term would miss."
     )
 
 # ---- 07 Time-to-acknowledge distribution ----------------------------------- #
@@ -590,20 +601,26 @@ counts = ackd["ack_bin"].value_counts().reindex(ACK_LABELS, fill_value=0)
 past_sla = [lab for lab, lo_edge in zip(ACK_LABELS, [0, 1, 2, 3, 5, 7, 10, 15, 20, 30, 45])
             if lo_edge >= SLA_MINUTES]
 secs = df["first_ack_seconds"].dropna()
-within_1 = (secs <= 60).mean()
+within_3 = (secs <= 180).mean()
 over_sla = (secs > SLA_MINUTES * 60).mean()
 over_60 = int((secs > 3600).sum())
 near_miss = counts.get("10–15", 0) / max(len(secs), 1)
+# Does sla_breach exactly equal "acknowledged after 15 minutes"?
+both = df[df["sla_breach"].notna() & df["first_ack_seconds"].notna()]
+agree = ((both["first_ack_seconds"] > SLA_MINUTES * 60) == (both["sla_breach"] == 1)).mean()
+clean_cut = agree == 1
 section_header(
-    7, "Most alerts are acknowledged in minutes; breaches live in the long tail",
-    f"**{pct(within_1, 0)}** of alerts are acknowledged within a minute (median "
-    f"{secs.median() / 60:.1f} min), while **{pct(over_sla)}** take longer than {SLA_MINUTES} "
-    f"minutes. Another **{pct(near_miss)}** land in the 10–15 minute near-miss window.",
+    7, "The target is a clean threshold cut" if clean_cut else "Breaches live in the long tail",
+    f"**{pct(within_3, 0)}** of alerts are handled within 3 minutes (median "
+    f"{secs.median():.0f}s); **{pct(over_sla)}** take longer than {SLA_MINUTES} minutes. "
+    + (f"Breach status is a hard cut at {SLA_MINUTES} minutes with no boundary artifacts: every "
+       f"breach was acknowledged after {SLA_MINUTES} min and every on-time alert before."
+       if clean_cut else
+       f"Breach status matches the {SLA_MINUTES}-minute cut for {pct(agree)} of alerts."),
 )
 with st.container(border=True):
     card_header("Time-to-acknowledge distribution",
-                f"Capped at 60 min ({over_60:,} slower alerts not shown) · red = past the "
-                f"{SLA_MINUTES}-minute mark")
+                f"Capped at 60 min ({over_60:,} slower alerts not shown) · red = past SLA")
     fig = go.Figure(go.Bar(
         x=ACK_LABELS, y=counts.values, width=0.8,
         marker_color=[RED if lab in past_sla else BLUE for lab in ACK_LABELS],
@@ -613,12 +630,13 @@ with st.container(border=True):
         hovertemplate=("<b>%{x} min</b><br>%{y:,} alerts<br>%{customdata[3]:.1%} of all "
                        "acknowledged alerts<extra></extra>"),
     ))
-    base_layout(fig, height=320, y_format=",.0f", x_title="Time to acknowledge (minutes)")
+    base_layout(fig, height=320, y_format="~s", x_title="Time to acknowledge (minutes)")
     fig.update_xaxes(title_font=dict(size=11))
     clickable_chart(fig, "chart_ack", 7)
     drilldown(df, data_id, 7, "Click a bar to see example alerts in that time window.")
 takeaway(
-    "The target is defined by a thin tail of a heavily skewed distribution, which is why breach "
-    "prediction is an imbalanced-class problem. The 10–15 minute near-miss band is where an early "
-    "warning has the most room to help (see the *10 vs 15 Min* tab)."
+    "The label is clean, so model errors come from the features, not label noise. But it sits on "
+    "a thin tail of a heavily skewed distribution, which makes this an imbalanced-class problem. "
+    f"The 10–15 minute band ({pct(near_miss)} of alerts) is where an early warning has the most "
+    "room to help (see the *10 vs 15 Min* tab)."
 )
