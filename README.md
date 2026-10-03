@@ -1,8 +1,9 @@
-# SLA Breach Pilot: Streamlit app
+# SLA Breach Risk: Streamlit dashboard
 
 Interactive dashboard for the SLA-breach capstone. The **EDA** tab is the
-descriptive pillar, a Python port of `DescriptivePillar.Rmd`. The other tabs
-(Model Journey, 10 vs 15 Min, Tree & Causal) are placeholders for the other pillars.
+descriptive pillar, a Python port of `DescriptivePillar.Rmd`, and is the first
+tab of the final dashboard. The other tabs (Model Journey, 10 vs 15 Min,
+Tree & Causal) show a "TBD · waiting to be built" page until their pillar is added.
 
 ## Run it
 
@@ -67,13 +68,55 @@ minimum-volume slider and section 05 a tag picker.
 ## Layout
 
 ```
-app.py                       entry point + top navigation
-views/eda.py                 EDA / descriptive pillar
-views/coming_soon.py         placeholder for the other pillars
-sla_data.py                  cached CSV loading + derived columns (bins, labels)
+app.py                       entry point: page config, logo, top navigation
+ui.py                        shared palette, CSS, chart theme, headers, cards
+sla_data.py                  cached data loading + derived columns (bins, labels)
+views/eda.py                 Tab 1, EDA / descriptive pillar (done)
+views/predictive.py          Tab 2, Model Journey (placeholder)
+views/sensitivity.py         Tab 3, 10 vs 15 Min (placeholder)
+views/causal.py              Tab 4, Tree & Causal (placeholder)
+assets/logo.svg              "SLA Breach Risk" title shown top left
+data/                        zipped dataset
 scripts/make_sample_data.py  synthetic data generator
 .streamlit/config.toml       dark theme, 1 GB upload limit
 ```
 
-To add a pillar, create `views/<name>.py` and point its `st.Page(...)` in
-`app.py` at the new file.
+## Adding your pillar
+
+Each tab is one file, so pillars can be built in parallel without touching
+each other's code. To build one, replace the placeholder in its file:
+
+```python
+# views/sensitivity.py
+import plotly.graph_objects as go
+import streamlit as st
+
+from sla_data import find_data_path, load_alerts
+from ui import BLUE, RED, base_layout, card_header, page_header, section_header, takeaway
+
+path = find_data_path()
+df = load_alerts(str(path), path.stat().st_mtime)   # cached; shared with the EDA tab
+
+page_header("Sensitivity pillar", "What if the SLA were 10 minutes?",
+            "One-sentence summary of the finding.")
+
+section_header(1, "Headline finding", "Caption with the key numbers.")
+with st.container(border=True):
+    card_header("Chart title", "What the chart shows")
+    fig = go.Figure(...)
+    st.plotly_chart(base_layout(fig), width="stretch")
+takeaway("What the team should do with this.")
+```
+
+- **Data:** `load_alerts` returns the cleaned alerts DataFrame with derived
+  columns (`month`, `sla_status`, `tags_clean`, workload and ack bins). Every
+  tab shares one cached copy. If you need a column it doesn't load yet, add it to
+  `KEEP_COLUMNS` in `sla_data.py`.
+- **Style:** use `ui.py` so every tab matches. `BLUE` for the normal series,
+  `RED` for the highlighted or risky one, `base_layout()` for charts,
+  `section_header()` and `takeaway()` for the numbered sections.
+- **Dependencies:** add any new packages (e.g. `scikit-learn`, `shap`) to
+  `requirements.txt`, or the deployed app will fail to build.
+- **Models:** train offline and commit the saved model (e.g. with `joblib`),
+  then load it with `@st.cache_resource`. Don't train inside the app on every visit.
+- **New tab:** add a file in `views/` and a matching `st.Page(...)` line in `app.py`.
