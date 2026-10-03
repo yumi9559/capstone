@@ -1,0 +1,5 @@
+# Alert data stays local: too large for git and contains client information.
+data/
+*.csv
+__pycache__/
+.venv/
