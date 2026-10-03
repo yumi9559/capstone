@@ -1,0 +1,10 @@
+[theme]
+base = "dark"
+primaryColor = "#3689E6"
+backgroundColor = "#0E1013"
+secondaryBackgroundColor = "#16181C"
+textColor = "#E6EDF3"
+
+[server]
+# The engineered CSV is a few hundred MB; allow uploading it through the app.
+maxUploadSize = 1024

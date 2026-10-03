@@ -1,0 +1,7 @@
+# The raw CSV is too big for GitHub (>100 MB); the zipped copy in data/ is
+# committed instead and the app reads it directly.
+data/*
+!data/joined_anonymized_engineered.zip
+*.csv
+__pycache__/
+.venv/
