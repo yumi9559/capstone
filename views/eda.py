@@ -48,10 +48,15 @@ def hour_label(h):
 
 
 def rate_table(df, by):
-    """Alerts, breaches and breach rate per group (rows with a known SLA outcome)."""
-    known = df[df["sla_breach"].notna() & df[by].notna()]
-    out = known.groupby(by, observed=True)["sla_breach"].agg(alerts="size", breaches="sum")
-    out["breach_rate"] = out["breaches"] / out["alerts"]
+    """Alerts, breaches and breach rate per group, matching the Rmd.
+
+    alerts counts every alert, like n() in R. breach_rate is mean(sla_breach == 1,
+    na.rm = TRUE): the 32 alerts with no recorded SLA outcome count toward volume
+    but not toward the rate.
+    """
+    out = (df[df[by].notna()].groupby(by, observed=True)["sla_breach"]
+           .agg(alerts="size", breaches="sum", breach_rate="mean"))
+    out["breaches"] = out["breaches"].astype(int)
     return out.reset_index()
 
 
