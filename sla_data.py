@@ -18,6 +18,7 @@ APP_DIR = Path(__file__).resolve().parent
 CANDIDATE_PATHS = [
     APP_DIR / "data" / DATA_FILENAME,
     APP_DIR / DATA_FILENAME,
+    APP_DIR / "data" / "joined_anonymized_engineered.zip",  # committed copy, used when deployed
     APP_DIR / "data" / "sample_alerts.csv",  # synthetic, from scripts/make_sample_data.py
 ]
 
@@ -83,7 +84,7 @@ def _clean_tags(raw):
 
 @st.cache_data(show_spinner="Loading alert data…")
 def load_alerts(source, modified=None):
-    """Read the CSV (path or uploaded file) and add the derived columns the charts use.
+    """Read the CSV or zipped CSV (path or uploaded file) and add the derived columns.
 
     `modified` is the file's mtime; it is only part of the cache key, so the
     cache refreshes when the CSV on disk is replaced.

@@ -8,28 +8,34 @@ descriptive pillar, a Python port of `DescriptivePillar.Rmd`. The other tabs
 
 ```bash
 pip install -r requirements.txt
-mkdir -p data
-cp /path/to/joined_anonymized_engineered.csv data/
 streamlit run app.py
 ```
 
-The app looks for the data in this order:
+The dataset is committed as `data/joined_anonymized_engineered.zip` (the raw
+141 MB CSV is over GitHub's 100 MB file limit; the zip is 13 MB). pandas reads
+the zip directly, so there is nothing to unzip. The app looks for data in this
+order:
 
 1. the path in the `SLA_DATA_PATH` environment variable
 2. `data/joined_anonymized_engineered.csv`
 3. `joined_anonymized_engineered.csv` next to `app.py`
-4. `data/sample_alerts.csv` (synthetic, see below)
+4. `data/joined_anonymized_engineered.zip` (the committed copy)
+5. `data/sample_alerts.csv` (synthetic, see below)
 
-If none of these exist, the page shows an upload box. `data/` and all `*.csv`
-files are git-ignored, so the real data never gets committed.
+If none of these exist, the page shows an upload box.
 
-**No access to the real file?** Generate a fake one with the same columns:
+**Synthetic data for testing:** `python scripts/make_sample_data.py` writes a
+fake `data/sample_alerts.csv` with the same columns. The app shows a banner
+while it's using it.
 
-```bash
-python scripts/make_sample_data.py        # writes data/sample_alerts.csv
-```
+## Deploy (Streamlit Community Cloud)
 
-The app shows a "synthetic sample data" banner while it's using this file.
+1. share.streamlit.io → **Create app** → **Deploy a public app from GitHub**.
+2. Repository `yumi9559/capstone`, branch `main` (or the feature branch before
+   it's merged), main file `app.py`. Pick a custom subdomain.
+3. **Advanced settings** → Python 3.11 or 3.12. Dependencies come from
+   `requirements.txt`.
+4. **Deploy.** Every push to that branch redeploys the app.
 
 ## What's on the EDA tab
 
@@ -48,10 +54,10 @@ the data, the chart(s), and a takeaway.
 | 07 | Time to acknowledge | Distribution, capped at 60 min |
 
 **Interactivity:** hover any point or bar for alerts, breaches and rates.
-**Click** a point or bar to open the raw alerts behind it in a table under that
-section (newest first, first 100 shown). **Download all N as CSV** exports every
-matching alert, not just the preview. Double-click empty chart space to clear
-the selection.
+On the first chart (breach rate by month), **click a month** to list every alert
+from that month in the table below it; **Download all N as CSV** exports them.
+It opens on the peak month by default. Section 04 has a minimum-volume slider
+and section 05 a tag picker.
 
 ## Layout
 
